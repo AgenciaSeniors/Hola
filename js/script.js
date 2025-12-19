@@ -602,7 +602,7 @@ async function procesarMezcla() {
     visual.classList.add('shaking'); 
 
     const menuSimple = todosLosProductos.map(p => p.nombre).join(', ');
-    const URL_SCRIPT = "TU_URL_DE_GOOGLE_SCRIPT"; // Asegúrate de que esta URL sea correcta
+    const URL_SCRIPT = "https://script.google.com/macros/s/AKfycbzEmZU43Lo4u54KY6tmLBjxetnqtHLIwvPTa5PYLkiRbG02B67Ad1MpGW8VWc6CprlB/exec"; // Asegúrate de que esta URL sea correcta
 
     try {
         const response = await fetch(URL_SCRIPT, {
