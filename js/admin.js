@@ -1,4 +1,20 @@
-// js/admin.js - Panel de Administración (Corregido y Seguro)
+// js/admin.js - Panel de Administración (Corregido y Modular)
+
+import { ApiService } from './services/api.js';
+
+// URL DE GOOGLE APPS SCRIPT
+const URL_SCRIPT = "https://script.google.com/macros/s/AKfycbyyJoRpC1mYNKNlKxjZVAT0dyXYW79wFq_IbV0KOll2bY0cjWXoUN7K-71lzB6TgJ5x/exec";
+
+// Exportar funciones para el HTML (onclicks)
+window.cambiarVista = cambiarVista;
+window.prepararEdicion = prepararEdicion;
+window.toggleDestacado = toggleDestacado;
+window.toggleEstado = toggleEstado;
+window.eliminarProducto = eliminarProducto;
+window.restaurarProducto = restaurarProducto;
+window.cancelarEdicion = cancelarEdicion;
+window.generarCuriosidad = generarCuriosidad;
+window.cargarMenu = cargarAdmin; // Reutilizar si es necesario
 
 let inventarioGlobal = []; 
 let searchTimeout; 
@@ -34,11 +50,6 @@ async function cargarAdmin() {
     renderizarInventario(inventarioGlobal);
 }
 
-async function cerrarSesion() {
-    await supabaseClient.auth.signOut();
-    window.location.href = "login.html";
-}
-
 // 2. TABS
 function cambiarVista(vista) {
     document.querySelectorAll('.vista-seccion').forEach(el => {
@@ -56,12 +67,9 @@ function cambiarVista(vista) {
     const map = { 'inventario': 0, 'opiniones': 1, 'visitas': 2 };
     const btns = document.querySelectorAll('.tab-btn');
     if(btns[map[vista]]) btns[map[vista]].classList.add('active');
-
-    if (vista === 'visitas' && typeof cargarMetricasVisitas === 'function') cargarMetricasVisitas();
-    if (vista === 'opiniones' && typeof cargarOpiniones === 'function') cargarOpiniones(); 
 }
 
-// 3. RENDER INVENTARIO (SEGURO)
+// 3. RENDER INVENTARIO
 function renderizarInventario(lista) {
     const container = document.getElementById('lista-admin');
     if (!container) return;
@@ -72,7 +80,6 @@ function renderizarInventario(lista) {
     }
 
     const html = lista.map(item => {
-        // Sanitizamos TODO lo que viene de la BD
         const nombreSafe = escapeHTML(item.nombre);
         const precioSafe = escapeHTML(item.precio);
         
@@ -108,19 +115,6 @@ function renderizarInventario(lista) {
     }).join('');
 
     container.innerHTML = html;
-}
-
-function buscarInventario(e) {
-    clearTimeout(searchTimeout);
-    const term = e.target.value.toLowerCase();
-    searchTimeout = setTimeout(() => {
-        const filtrada = inventarioGlobal.filter(p => 
-            (p.nombre || '').toLowerCase().includes(term) || 
-            (p.descripcion || '').toLowerCase().includes(term) ||
-            (p.categoria || '').toLowerCase().includes(term)
-        );
-        renderizarInventario(filtrada);
-    }, 300);
 }
 
 // 4. EDICIÓN / CREACIÓN
@@ -170,7 +164,6 @@ if(form) {
                 destacado: document.getElementById('destacado').checked
             };
 
-            // Imagen
             const fileInput = document.getElementById('imagen-file');
             if (fileInput.files.length > 0) {
                 const file = fileInput.files[0];
@@ -226,37 +219,35 @@ async function restaurarProducto(id) {
     cargarAdmin();
 }
 
-// IA CURIOSIDAD (Mantenido igual)
-// js/admin.js - Corrección en generarCuriosidad
-
+// IA CURIOSIDAD (CORREGIDO PARA USAR API MODULAR)
 async function generarCuriosidad() {
-    const nombre = document.getElementById('nombre').value;
+    const nombreInput = document.getElementById('nombre');
     const out = document.getElementById('curiosidad');
     const btn = document.getElementById('btn-ia');
     const loader = document.getElementById('loader-ia');
 
-    if(!nombre) { alert("Pon un nombre primero"); return; }
+    if(!nombreInput || !nombreInput.value) { 
+        alert("Pon un nombre primero"); return; 
+    }
     
-    const URL_SCRIPT = "https://script.google.com/macros/s/AKfycbzEmZU43Lo4u54KY6tmLBjxetnqtHLIwvPTa5PYLkiRbG02B67Ad1MpGW8VWc6CprlB/exec";
-
-    btn.disabled = true; 
-    loader.style.display = "inline"; 
-    out.value = "Consultando al sommelier...";
+    if(btn) btn.disabled = true; 
+    if(loader) loader.style.display = "inline"; 
+    if(out) out.value = "Pensando...";
 
     try {
-        const res = await fetch(URL_SCRIPT, { 
-            method: 'POST', 
-            headers: { "Content-Type": "text/plain" }, // CRÍTICO: Permite que GAS lea el JSON
-            body: JSON.stringify({ producto: nombre })
+        // Usamos ApiService para evitar preflight (Content-Type: text/plain)
+        const data = await ApiService.callGAS(URL_SCRIPT, {
+            producto: nombreInput.value,
+            negocio: "D' La Vida Bar"
         });
-        const json = await res.json();
-        out.value = json.curiosidad || "Una opción excelente de nuestra carta.";
+
+        if(out) out.value = data.curiosidad || "Sin respuesta";
     } catch(e) {
-        out.value = "Error de conexión con la IA.";
-        console.error(e);
+        console.error("Error IA:", e);
+        if(out) out.value = "Error conexión IA";
     } finally {
-        btn.disabled = false; 
-        loader.style.display = "none";
+        if(btn) btn.disabled = false; 
+        if(loader) loader.style.display = "none";
     }
 }
 

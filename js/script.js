@@ -1,12 +1,53 @@
-// js/script.js - Lógica Cliente (Refactorizado)
+// js/script.js - Lógica Cliente (Refactorizado con Módulos ES)
 
+import { normalizeStr, findProductMatch, getRandomProduct } from './ai/aiUtils.js';
+import { ApiService } from './services/api.js';
+import { AiEngine } from './ai/aiEngine.js';
+
+// URL DE GOOGLE APPS SCRIPT (Asegúrate de que es la correcta y desplegada como Web App)
+const URL_SCRIPT = "https://script.google.com/macros/s/AKfycbyyJoRpC1mYNKNlKxjZVAT0dyXYW79wFq_IbV0KOll2bY0cjWXoUN7K-71lzB6TgJ5x/exec";
+
+// --- ESTADO GLOBAL ---
 let todosLosProductos = [];
 let productoActual = null;
 let puntuacion = 0;
 let searchTimeout;
 
+// Estado del Shaker
+let shakerState = {
+    seleccionados: [],
+    isShaking: false,
+    isProcessing: false,
+    shakeCount: 0
+};
+let watchID = null;
+
+// Configuración de Esencias
+const ESENCIAS = [
+    { id: 'fresco', icono: '🧊', nombre: 'Fresco' },
+    { id: 'dulce', icono: '🍬', nombre: 'Dulce' },
+    { id: 'fuerte', icono: '🔥', nombre: 'Potente' },
+    { id: 'frutal', icono: '🍍', nombre: 'Frutal' },
+    { id: 'amargo', icono: '🍋', nombre: 'Ácido' },
+    { id: 'party', icono: '🎉', nombre: 'Fiesta' }
+];
+
+// --- EXPORTAR FUNCIONES AL WINDOW (Para compatibilidad con onclick HTML) ---
+window.registrarBienvenida = registrarBienvenida;
+window.cerrarWelcome = cerrarWelcome;
+window.filtrar = filtrar;
+window.abrirDetalle = abrirDetalle;
+window.cerrarDetalle = cerrarDetalle;
+window.abrirOpinionDesdeDetalle = abrirOpinionDesdeDetalle;
+window.cerrarModalOpiniones = cerrarModalOpiniones;
+window.enviarOpinion = enviarOpinion;
+window.abrirShaker = abrirShaker;
+window.cerrarShaker = cerrarShaker;
+window.procesarMezcla = procesarMezcla;
+window.cargarMenu = cargarMenu; // Útil para reintentar
+
 document.addEventListener('DOMContentLoaded', () => {
-    checkWelcome(); // Lógica de visitas mejorada
+    checkWelcome();
     cargarMenu();
     updateConnectionStatus();
 });
@@ -29,12 +70,13 @@ async function checkWelcome() {
 
             if (!ultimaVisita || (ahora - parseInt(ultimaVisita)) > HORAS_12) {
                 console.log("Registrando visita recurrente...");
-                const { error } = await supabaseClient.from('visitas').insert([{
+                // CORRECCIÓN: Usamos inserción segura que maneja el error 409
+                const res = await ApiService.safeInsert(supabaseClient, 'visitas', {
                     cliente_id: clienteId,
                     motivo: 'Regreso al Menú'
-                }]);
+                });
 
-                if (!error) {
+                if (res.status === 'success' || res.status === 'duplicate') {
                     localStorage.setItem('ultima_visita_ts', ahora.toString());
                 }
             }
@@ -48,7 +90,6 @@ async function checkWelcome() {
     }
 }
 
-// FIX: Función solicitada para el botón anónimo
 function cerrarWelcome() {
     activarModoAnonimo();
 }
@@ -63,16 +104,12 @@ function activarModoAnonimo() {
     showToast("Modo Explorador Anónimo", "info");
 }
 
-// FIX: Validación telefónica corregida
 function limpiarTelefono(input) {
     if (!input) return "";
-    let limpio = input.replace(/\D/g, ''); // Eliminar todo lo que no sea dígito
-    
-    // Si tiene 10 dígitos y empieza por 53 (formato internacional sin +), quitamos el 53
+    let limpio = input.replace(/\D/g, ''); 
     if (limpio.length === 10 && limpio.startsWith('53')) {
         limpio = limpio.substring(2);
     }
-    // NOTA: Si el usuario escribe 8 dígitos (ej: 55555555), lo dejamos pasar.
     return limpio;
 }
 
@@ -84,7 +121,6 @@ async function registrarBienvenida() {
     const nombre = inputNombre.value ? inputNombre.value.trim() : '';
     const telefono = limpiarTelefono(inputPhone.value);
 
-    // Validación básica: requerimos al menos 8 dígitos para Cuba
     if (!nombre || !telefono || telefono.length < 8) {
         showToast("Nombre y teléfono válido (min 8 dígitos) requeridos.", "warning");
         return;
@@ -93,7 +129,6 @@ async function registrarBienvenida() {
     if(btn) { btn.textContent = "Entrando..."; btn.disabled = true; }
 
     try {
-        // Buscar o crear cliente
         let { data: cliente } = await supabaseClient
             .from('clientes')
             .select('id')
@@ -111,19 +146,16 @@ async function registrarBienvenida() {
             clienteId = nuevo.id;
         }
 
-        // Registrar primera visita
-        await supabaseClient.from('visitas').insert([{
+        await ApiService.safeInsert(supabaseClient, 'visitas', {
             cliente_id: clienteId,
             motivo: 'Ingreso Inicial'
-        }]);
+        });
 
-        // Guardar sesión local
         localStorage.setItem('cliente_id', clienteId);
         localStorage.setItem('cliente_nombre', nombre);
-        localStorage.removeItem('modo_anonimo'); // Ya no es anónimo
+        localStorage.removeItem('modo_anonimo');
         localStorage.setItem('ultima_visita_ts', Date.now().toString());
 
-        // Cerrar modal
         const modal = document.getElementById('modal-welcome');
         modal.classList.remove('active');
         setTimeout(() => modal.style.display = 'none', 400);
@@ -131,7 +163,6 @@ async function registrarBienvenida() {
 
     } catch (err) {
         console.error("Error registro:", err);
-        // Fallback: permitir entrada local en caso de error de red crítico
         cerrarWelcome(); 
     } finally {
         if(btn) { btn.textContent = "INGRESAR"; btn.disabled = false; }
@@ -139,11 +170,9 @@ async function registrarBienvenida() {
 }
 
 // --- MENÚ Y PRODUCTOS ---
-// FIX: Mejor manejo de estados (Loading, Error, Vacío)
 async function cargarMenu() {
     const grid = document.getElementById('menu-grid');
     
-    // 1. Mostrar estado de carga si no hay caché inmediata
     const menuCache = localStorage.getItem('menu_cache');
     if (menuCache) {
         todosLosProductos = JSON.parse(menuCache);
@@ -156,7 +185,6 @@ async function cargarMenu() {
             </div>`;
     }
 
-    // 2. Network Update
     try {
         if (typeof supabaseClient === 'undefined') throw new Error("Supabase no definido");
 
@@ -169,15 +197,13 @@ async function cargarMenu() {
 
         if (error) throw error;
 
-        // Manejo explícito de carta vacía desde BD
         if (!productos || productos.length === 0) {
             todosLosProductos = [];
             localStorage.removeItem('menu_cache');
-            renderizarMenu([]); // Renderizará el mensaje de "Carta Vacía"
+            renderizarMenu([]);
             return;
         }
 
-        // Calcular ratings
         const productosProcesados = productos.map(prod => {
             const opiniones = prod.opiniones || [];
             const total = opiniones.length;
@@ -192,7 +218,6 @@ async function cargarMenu() {
 
     } catch (err) {
         console.warn("Offline o error:", err);
-        // Si no tenemos caché y falló la red
         if(!menuCache && grid) {
             grid.innerHTML = `
                 <div style="grid-column:1/-1; text-align:center; padding:30px;">
@@ -221,7 +246,7 @@ function renderizarMenu(lista) {
         if (esAgotado) badgeHTML = `<span class="badge-agotado" style="color:var(--neon-red); border:1px solid var(--neon-red);">AGOTADO</span>`;
         else if (item.destacado) badgeHTML = `<span class="badge-destacado">🔥 HOT</span>`;
 
-        const img = item.imagen_url || 'img/logo.png'; // Fallback a logo local
+        const img = item.imagen_url || 'img/logo.png';
         const rating = item.ratingPromedio ? `★ ${item.ratingPromedio}` : '';
         const accionClick = esAgotado ? '' : `onclick="abrirDetalle(${item.id})"`;
         const claseAgotado = esAgotado ? 'agotado' : '';
@@ -345,7 +370,6 @@ function actualizarEstrellas() {
 async function enviarOpinion() {
     if (puntuacion === 0) { showToast("¡Marca las estrellas!", "warning"); return; }
 
-    // Rate Limiting (Anti-Spam Local)
     const LAST_OPINION = 'last_opinion_ts';
     const lastTime = localStorage.getItem(LAST_OPINION);
     const ahora = Date.now();
@@ -411,25 +435,8 @@ window.addEventListener('online', () => { updateConnectionStatus(); showToast("C
 window.addEventListener('offline', () => { updateConnectionStatus(); showToast("Modo Offline", "warning"); });
 
 // ==========================================
-// 🌪️ SHAKER VIRTUAL (Mixer IA)
+// 🌪️ SHAKER VIRTUAL (Mixer IA) - REFACTORIZADO
 // ==========================================
-
-const ESENCIAS = [
-    { id: 'fresco', icono: '🧊', nombre: 'Fresco' },
-    { id: 'dulce', icono: '🍬', nombre: 'Dulce' },
-    { id: 'fuerte', icono: '🔥', nombre: 'Potente' },
-    { id: 'frutal', icono: '🍍', nombre: 'Frutal' },
-    { id: 'amargo', icono: '🍋', nombre: 'Ácido' },
-    { id: 'party', icono: '🎉', nombre: 'Fiesta' }
-];
-
-let shakerState = {
-    seleccionados: [],
-    isShaking: false,
-    shakeCount: 0
-};
-
-let watchID = null; // Para el acelerómetro
 
 function abrirShaker() {
     const modal = document.getElementById('modal-shaker');
@@ -440,8 +447,6 @@ function abrirShaker() {
     shakerState.seleccionados = [];
     renderizarEsencias();
     actualizarEstadoShaker();
-    
-    // FIX: Intentar pedir permisos para iOS al abrir el shaker (user gesture)
     iniciarDetectorMovimiento();
 }
 
@@ -511,7 +516,6 @@ function actualizarEstadoShaker() {
 
 // --- DETECTOR DE AGITACIÓN (SHAKE) ---
 function iniciarDetectorMovimiento() {
-    // FIX: Soporte para iOS 13+ que requiere permiso explícito
     if (typeof DeviceMotionEvent.requestPermission === 'function') {
         DeviceMotionEvent.requestPermission()
             .then(permissionState => {
@@ -523,14 +527,12 @@ function iniciarDetectorMovimiento() {
             })
             .catch(console.error);
     } else {
-        // Dispositivos no-iOS o versiones antiguas
         activarSensores();
     }
 }
 
 function activarSensores() {
     if (window.DeviceMotionEvent) {
-        // FIX: Umbral aumentado para evitar falsos positivos
         const umbral = 25; 
         let lastX = 0, lastY = 0, lastZ = 0;
 
@@ -549,7 +551,6 @@ function activarSensores() {
                 shakerState.shakeCount++;
                 document.getElementById('shaker-img').classList.add('shaking');
                 
-                // Necesita agitarse un poco más consistentemente
                 if (shakerState.shakeCount > 8) {
                     procesarMezcla();
                     shakerState.shakeCount = 0; 
@@ -578,10 +579,10 @@ function detenerDetectorMovimiento() {
     }
 }
 
-// --- LLAMADA A LA IA ---
+// --- LOGICA IA CENTRALIZADA ---
 async function procesarMezcla() {
-    // 1. Verificación de seguridad: evitar múltiples clics o ejecución sin productos
     if (shakerState.isProcessing) return;
+    
     if (!todosLosProductos || todosLosProductos.length === 0) {
         showToast("Cargando el menú... espera un segundo", "warning");
         return;
@@ -590,76 +591,65 @@ async function procesarMezcla() {
     shakerState.isProcessing = true;
     detenerDetectorMovimiento(); 
 
-    // Referencias de UI
     const btn = document.getElementById('btn-mix-manual');
     const status = document.getElementById('shaker-status');
     const visual = document.getElementById('shaker-img');
     
-    // Feedback visual inicial
     btn.textContent = "Mezclando sabores...";
-    btn.disabled = true;
     status.textContent = "🧠 La IA está probando la mezcla...";
     visual.classList.add('shaking'); 
 
-    const menuSimple = todosLosProductos.map(p => p.nombre).join(', ');
-    const URL_SCRIPT = "https://script.google.com/macros/s/AKfycbzEmZU43Lo4u54KY6tmLBjxetnqtHLIwvPTa5PYLkiRbG02B67Ad1MpGW8VWc6CprlB/exec"; // Asegúrate de que esta URL sea correcta
-
     try {
-        const response = await fetch(URL_SCRIPT, {
-            method: 'POST',
-            body: JSON.stringify({
-                tipo: "Bebida", // O "Cualquiera"
-                sabor: shakerState.seleccionados.join(', '), 
-                menu: menuSimple 
-            }),
-            headers: { "Content-Type": "text/plain" }
-        });
+        const preferences = {
+            tipo: "Bebida",
+            sabor: shakerState.seleccionados.join(', ')
+        };
 
-        if (!response.ok) throw new Error("Error en la respuesta del servidor");
+        // Usamos el Engine Modular
+        const aiResponse = await AiEngine.getRecommendation(URL_SCRIPT, preferences, todosLosProductos);
 
-        const data = await response.json();
-        
-        if (data.recomendacion) {
-            mostrarResultadoShaker(data.recomendacion);
+        if (aiResponse) {
+            mostrarResultadoShaker(aiResponse);
         } else {
-            throw new Error("La IA no devolvió una recomendación válida");
+            throw new Error("Respuesta IA inválida");
         }
 
     } catch (error) {
-        console.error("Error en Shaker:", error);
+        console.error("Fallo IA:", error);
         status.textContent = "Error de conexión. Intenta de nuevo.";
-        showToast("La IA está ocupada. Intenta de nuevo.", "error");
+        showToast("La IA está descansando. Recomendación local.", "warning");
+        // Fallback en caso de error de red
+        mostrarResultadoShaker({ product_id: null, product_name: "" });
     } finally {
-        // ESTA ES LA CLAVE: Se ejecuta siempre, haya error o éxito
+        // Corrección del "Cargando infinito": Siempre reseteamos
         shakerState.isProcessing = false;
         visual.classList.remove('shaking');
-        if (btn) {
-            btn.textContent = "¡MEZCLAR AHORA! 🌪️";
-            btn.disabled = false;
-        }
+        btn.textContent = "¡MEZCLAR AHORA!";
+        btn.disabled = false;
     }
 }
 
-function mostrarResultadoShaker(nombreRecibido) {
-    // Normalizar la respuesta (quitar puntos, espacios y pasar a minúsculas)
-    const nombreIA = nombreRecibido.toLowerCase().replace(/[.*"']/g, '').trim();
-
-    // Buscar coincidencia flexible
-    const producto = todosLosProductos.find(p => {
-        const nombreBD = p.nombre.toLowerCase().trim();
-        return nombreBD.includes(nombreIA) || nombreIA.includes(nombreBD);
+function mostrarResultadoShaker(aiResult) {
+    // CORRECCIÓN: Matching robusto
+    const match = findProductMatch(todosLosProductos, {
+        id: aiResult.product_id,
+        name: aiResult.product_name || aiResult.recomendacion
     });
 
-    cerrarShaker(); // Cerramos el modal del shaker
+    cerrarShaker();
 
-    if (producto) {
-        abrirDetalle(producto.id);
-        showToast(`✨ Combinación perfecta: ${producto.nombre}`);
+    if (match) {
+        abrirDetalle(match.id);
+        showToast(`✨ Combinación perfecta: ${match.nombre}`, "success");
     } else {
-        // Evitamos el "Efecto Mojito" eligiendo uno aleatorio como sorpresa si la IA falla
-        const randomIdx = Math.floor(Math.random() * todosLosProductos.length);
-        const fallback = todosLosProductos[randomIdx];
-        if (fallback) abrirDetalle(fallback.id);
-        showToast("¡Sorpresa! Prueba nuestra recomendación especial", "info");
+        // CORRECCIÓN: Fallback Aleatorio (Evita efecto Mojito índice 0)
+        console.warn("Matching falló. Usando random fallback.");
+        const randomProd = getRandomProduct(todosLosProductos);
+        if (randomProd) {
+            abrirDetalle(randomProd.id);
+            showToast("¡Sorpresa! Prueba nuestra recomendación de la casa", "info");
+        } else {
+            showToast("No se encontraron productos.", "error");
+        }
     }
 }
