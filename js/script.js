@@ -581,44 +581,47 @@ function detenerDetectorMovimiento() {
 // --- LLAMADA A LA IA ---
 async function procesarMezcla() {
     if (shakerState.isProcessing) return;
-    shakerState.isProcessing = true;
-    detenerDetectorMovimiento(); 
+    
+    // Validación previa: Si no hay productos, no intentar
+    if (!todosLosProductos || todosLosProductos.length === 0) {
+        showToast("Cargando carta... intenta en un segundo", "warning");
+        return;
+    }
 
-    // UI Feedback
+    shakerState.isProcessing = true;
     const btn = document.getElementById('btn-mix-manual');
     const status = document.getElementById('shaker-status');
     const visual = document.getElementById('shaker-img');
     
     btn.textContent = "Mezclando sabores...";
-    status.textContent = "🧠 La IA está probando la mezcla...";
     visual.classList.add('shaking'); 
 
-    // Preparar datos para Google Script
     const menuSimple = todosLosProductos.map(p => p.nombre).join(', ');
-    const URL_SCRIPT = "https://script.google.com/macros/s/AKfycbwfGlwmuKVSy630EnyWR4gJ0k-5hPVIwWg_bXS07m0v79KahgZ8J3Eyvi_DQu1-MbOg/exec";
+    const URL_SCRIPT = "TU_URL_DE_GOOGLE_SCRIPT"; 
 
     try {
         const response = await fetch(URL_SCRIPT, {
             method: 'POST',
+            headers: { "Content-Type": "text/plain" }, // Evita errores de CORS en GAS
             body: JSON.stringify({
-                tipo: "Cualquiera", 
+                tipo: "Bebida", 
                 sabor: shakerState.seleccionados.join(', '), 
                 menu: menuSimple 
-            }),
-            headers: { "Content-Type": "text/plain" }
+            })
         });
 
         const data = await response.json();
-        
         if (data.recomendacion) {
             mostrarResultadoShaker(data.recomendacion);
         } else {
-            throw new Error("Sin respuesta válida");
+            throw new Error("Respuesta de IA vacía");
         }
-
     } catch (error) {
         console.error(error);
         status.textContent = "Error de conexión. Intenta de nuevo.";
+        showToast("La IA está descansando, intenta de nuevo", "error");
+    } finally {
+        // Esta sección SIEMPRE se ejecuta, eliminando el "cargando infinito"
         shakerState.isProcessing = false;
         visual.classList.remove('shaking');
         btn.textContent = "¡MEZCLAR AHORA!";
@@ -627,20 +630,24 @@ async function procesarMezcla() {
 }
 
 function mostrarResultadoShaker(nombreRecibido) {
-    const nombreIA = nombreRecibido.toLowerCase().replace(/[.\s]/g, '');
+    // Normalización: quitamos puntos, mayúsculas y espacios extra para comparar
+    const nombreIA = nombreRecibido.toLowerCase().replace(/[.*"']/g, '').trim();
 
     const producto = todosLosProductos.find(p => {
-        const n = p.nombre.toLowerCase().replace(/[.\s]/g, '');
-        return n.includes(nombreIA) || nombreIA.includes(n);
+        const nombreBD = p.nombre.toLowerCase().trim();
+        return nombreBD.includes(nombreIA) || nombreIA.includes(nombreBD);
     });
+
+    cerrarShaker();
 
     if (producto) {
         abrirDetalle(producto.id);
+        showToast(`✨ Recomendación: ${producto.nombre}`);
     } else {
-        // En lugar de ir siempre al [0], elige uno aleatorio para dar sensación de variedad
+        // Fallback aleatorio: Si la IA falla, no damos siempre el mismo (Mojito)
         const randomIdx = Math.floor(Math.random() * todosLosProductos.length);
         const fallback = todosLosProductos[randomIdx];
-        abrirDetalle(fallback.id);
-        showToast("No encontré el mix exacto, pero prueba esto...", "info");
+        if (fallback) abrirDetalle(fallback.id);
+        showToast("¡Prueba nuestra sugerencia especial!", "info");
     }
 }

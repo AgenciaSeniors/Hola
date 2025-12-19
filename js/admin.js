@@ -227,6 +227,8 @@ async function restaurarProducto(id) {
 }
 
 // IA CURIOSIDAD (Mantenido igual)
+// js/admin.js - Corrección en generarCuriosidad
+
 async function generarCuriosidad() {
     const nombre = document.getElementById('nombre').value;
     const out = document.getElementById('curiosidad');
@@ -235,22 +237,26 @@ async function generarCuriosidad() {
 
     if(!nombre) { alert("Pon un nombre primero"); return; }
     
-    const URL_SCRIPT = "https://script.google.com/macros/s/AKfycbwfGlwmuKVSy630EnyWR4gJ0k-5hPVIwWg_bXS07m0v79KahgZ8J3Eyvi_DQu1-MbOg/exec";
+    const URL_SCRIPT = "https://script.google.com/macros/s/AKfycbzEmZU43Lo4u54KY6tmLBjxetnqtHLIwvPTa5PYLkiRbG02B67Ad1MpGW8VWc6CprlB/exec";
 
-    btn.disabled = true; loader.style.display = "inline"; out.value = "Pensando...";
+    btn.disabled = true; 
+    loader.style.display = "inline"; 
+    out.value = "Consultando al sommelier...";
 
     try {
         const res = await fetch(URL_SCRIPT, { 
-    method: 'POST', 
-    headers: { 'Content-Type': 'text/plain' }, // CRÍTICO PARA APPS SCRIPT
-    body: JSON.stringify({ producto: nombre })
-});
+            method: 'POST', 
+            headers: { "Content-Type": "text/plain" }, // CRÍTICO: Permite que GAS lea el JSON
+            body: JSON.stringify({ producto: nombre })
+        });
         const json = await res.json();
-        out.value = json.curiosidad || "Sin respuesta";
+        out.value = json.curiosidad || "Una opción excelente de nuestra carta.";
     } catch(e) {
-        out.value = "Error conexión IA";
+        out.value = "Error de conexión con la IA.";
+        console.error(e);
     } finally {
-        btn.disabled = false; loader.style.display = "none";
+        btn.disabled = false; 
+        loader.style.display = "none";
     }
 }
 
