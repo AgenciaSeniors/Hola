@@ -1,4 +1,5 @@
 // js/services/api.js
+import { supabaseClient } from '../config.js'; // <--- Nueva importación
 
 export const ApiService = {
     /**

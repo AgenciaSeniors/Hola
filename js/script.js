@@ -3,6 +3,7 @@
 import { normalizeStr, findProductMatch, getRandomProduct } from './ai/aiUtils.js';
 import { ApiService } from './services/api.js';
 import { AiEngine } from './ai/aiEngine.js';
+import { supabaseClient } from './config.js';
 
 // URL DE GOOGLE APPS SCRIPT (Asegúrate de que es la correcta y desplegada como Web App)
 const URL_SCRIPT = "https://script.google.com/macros/s/AKfycbyyJoRpC1mYNKNlKxjZVAT0dyXYW79wFq_IbV0KOll2bY0cjWXoUN7K-71lzB6TgJ5x/exec";
