@@ -627,23 +627,20 @@ async function procesarMezcla() {
 }
 
 function mostrarResultadoShaker(nombreRecibido) {
-    const nombreIA = nombreRecibido.toLowerCase().trim();
+    const nombreIA = nombreRecibido.toLowerCase().replace(/[.\s]/g, '');
 
     const producto = todosLosProductos.find(p => {
-        const nombreBD = p.nombre.toLowerCase();
-        return nombreBD.includes(nombreIA) || nombreIA.includes(nombreBD);
+        const n = p.nombre.toLowerCase().replace(/[.\s]/g, '');
+        return n.includes(nombreIA) || nombreIA.includes(n);
     });
-
-    cerrarShaker();
 
     if (producto) {
         abrirDetalle(producto.id);
-        showToast(`✨ Combinación perfecta: ${producto.nombre}`);
     } else {
-        const fallback = todosLosProductos.find(p => p.destacado) || todosLosProductos[0];
-        if (fallback) abrirDetalle(fallback.id);
-        showToast("¡Sorpresa! Prueba nuestra recomendación de la casa", "info");
+        // En lugar de ir siempre al [0], elige uno aleatorio para dar sensación de variedad
+        const randomIdx = Math.floor(Math.random() * todosLosProductos.length);
+        const fallback = todosLosProductos[randomIdx];
+        abrirDetalle(fallback.id);
+        showToast("No encontré el mix exacto, pero prueba esto...", "info");
     }
-    
-    shakerState.isProcessing = false;
 }

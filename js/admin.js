@@ -240,7 +240,11 @@ async function generarCuriosidad() {
     btn.disabled = true; loader.style.display = "inline"; out.value = "Pensando...";
 
     try {
-        const res = await fetch(URL_SCRIPT, { method:'POST', body: JSON.stringify({producto:nombre})});
+        const res = await fetch(URL_SCRIPT, { 
+    method: 'POST', 
+    headers: { 'Content-Type': 'text/plain' }, // CRÍTICO PARA APPS SCRIPT
+    body: JSON.stringify({ producto: nombre })
+});
         const json = await res.json();
         out.value = json.curiosidad || "Sin respuesta";
     } catch(e) {
