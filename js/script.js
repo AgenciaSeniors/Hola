@@ -580,74 +580,86 @@ function detenerDetectorMovimiento() {
 
 // --- LLAMADA A LA IA ---
 async function procesarMezcla() {
+    // 1. Verificación de seguridad: evitar múltiples clics o ejecución sin productos
     if (shakerState.isProcessing) return;
-    
-    // Validación previa: Si no hay productos, no intentar
     if (!todosLosProductos || todosLosProductos.length === 0) {
-        showToast("Cargando carta... intenta en un segundo", "warning");
+        showToast("Cargando el menú... espera un segundo", "warning");
         return;
     }
 
     shakerState.isProcessing = true;
+    detenerDetectorMovimiento(); 
+
+    // Referencias de UI
     const btn = document.getElementById('btn-mix-manual');
     const status = document.getElementById('shaker-status');
     const visual = document.getElementById('shaker-img');
     
+    // Feedback visual inicial
     btn.textContent = "Mezclando sabores...";
+    btn.disabled = true;
+    status.textContent = "🧠 La IA está probando la mezcla...";
     visual.classList.add('shaking'); 
 
     const menuSimple = todosLosProductos.map(p => p.nombre).join(', ');
-    const URL_SCRIPT = "TU_URL_DE_GOOGLE_SCRIPT"; 
+    const URL_SCRIPT = "TU_URL_DE_GOOGLE_SCRIPT"; // Asegúrate de que esta URL sea correcta
 
     try {
         const response = await fetch(URL_SCRIPT, {
             method: 'POST',
-            headers: { "Content-Type": "text/plain" }, // Evita errores de CORS en GAS
             body: JSON.stringify({
-                tipo: "Bebida", 
+                tipo: "Bebida", // O "Cualquiera"
                 sabor: shakerState.seleccionados.join(', '), 
                 menu: menuSimple 
-            })
+            }),
+            headers: { "Content-Type": "text/plain" }
         });
 
+        if (!response.ok) throw new Error("Error en la respuesta del servidor");
+
         const data = await response.json();
+        
         if (data.recomendacion) {
             mostrarResultadoShaker(data.recomendacion);
         } else {
-            throw new Error("Respuesta de IA vacía");
+            throw new Error("La IA no devolvió una recomendación válida");
         }
+
     } catch (error) {
-        console.error(error);
+        console.error("Error en Shaker:", error);
         status.textContent = "Error de conexión. Intenta de nuevo.";
-        showToast("La IA está descansando, intenta de nuevo", "error");
+        showToast("La IA está ocupada. Intenta de nuevo.", "error");
     } finally {
-        // Esta sección SIEMPRE se ejecuta, eliminando el "cargando infinito"
+        // ESTA ES LA CLAVE: Se ejecuta siempre, haya error o éxito
         shakerState.isProcessing = false;
         visual.classList.remove('shaking');
-        btn.textContent = "¡MEZCLAR AHORA!";
-        btn.disabled = false;
+        if (btn) {
+            btn.textContent = "¡MEZCLAR AHORA! 🌪️";
+            btn.disabled = false;
+        }
     }
 }
 
 function mostrarResultadoShaker(nombreRecibido) {
-    // Normalización: quitamos puntos, mayúsculas y espacios extra para comparar
+    // Normalizar la respuesta (quitar puntos, espacios y pasar a minúsculas)
     const nombreIA = nombreRecibido.toLowerCase().replace(/[.*"']/g, '').trim();
 
+    // Buscar coincidencia flexible
     const producto = todosLosProductos.find(p => {
         const nombreBD = p.nombre.toLowerCase().trim();
         return nombreBD.includes(nombreIA) || nombreIA.includes(nombreBD);
     });
 
-    cerrarShaker();
+    cerrarShaker(); // Cerramos el modal del shaker
 
     if (producto) {
         abrirDetalle(producto.id);
-        showToast(`✨ Recomendación: ${producto.nombre}`);
+        showToast(`✨ Combinación perfecta: ${producto.nombre}`);
     } else {
-        // Fallback aleatorio: Si la IA falla, no damos siempre el mismo (Mojito)
+        // Evitamos el "Efecto Mojito" eligiendo uno aleatorio como sorpresa si la IA falla
         const randomIdx = Math.floor(Math.random() * todosLosProductos.length);
         const fallback = todosLosProductos[randomIdx];
         if (fallback) abrirDetalle(fallback.id);
-        showToast("¡Prueba nuestra sugerencia especial!", "info");
+        showToast("¡Sorpresa! Prueba nuestra recomendación especial", "info");
     }
 }
